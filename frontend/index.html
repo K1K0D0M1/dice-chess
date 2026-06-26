@@ -1,0 +1,1058 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Dice Chess ♟️🎲</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+
+<style>
+:root {
+  --bg:        #0f0f13;
+  --surface:   #1a1a22;
+  --card:      #22222e;
+  --border:    #2e2e3e;
+  --border2:   #3e3e52;
+  --white:     #e8e6f0;
+  --muted:     #7a7890;
+  --accent:    #7c5cfc;
+  --accent2:   #9b7fff;
+  --gold:      #f0b429;
+  --red:       #e85555;
+  --green:     #4caf7d;
+  --radius:    12px;
+  --font:      'Space Grotesk', sans-serif;
+  --mono:      'JetBrains Mono', monospace;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--white);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* ── HEADER ── */
+header {
+  width: 100%;
+  padding: 16px 32px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.logo { font-size: 22px; font-weight: 700; letter-spacing: -0.5px; }
+.logo span { color: var(--accent2); }
+.room-badge {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--card);
+  border: 1px solid var(--border);
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: all;
+  transition: border-color .2s;
+}
+.room-badge:hover { border-color: var(--accent); color: var(--accent2); }
+
+/* ── LOBBY ── */
+#lobby {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  padding: 64px 24px;
+  max-width: 480px;
+  width: 100%;
+}
+.lobby-title {
+  font-size: 36px;
+  font-weight: 700;
+  text-align: center;
+  letter-spacing: -1px;
+}
+.lobby-title span { color: var(--accent2); }
+.lobby-sub {
+  text-align: center;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.6;
+}
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+  width: 100%;
+}
+.card h3 { font-size: 14px; font-weight: 500; color: var(--muted); margin-bottom: 16px; text-transform: uppercase; letter-spacing: 0.5px; }
+.input {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  color: var(--white);
+  font-family: var(--font);
+  font-size: 15px;
+  outline: none;
+  transition: border-color .2s;
+  margin-bottom: 12px;
+}
+.input:focus { border-color: var(--accent); }
+.input::placeholder { color: var(--muted); }
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 12px 20px;
+  border: none;
+  border-radius: 8px;
+  font-family: var(--font);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all .15s;
+}
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover { background: var(--accent2); transform: translateY(-1px); }
+.btn-ghost { background: transparent; border: 1px solid var(--border2); color: var(--white); }
+.btn-ghost:hover { border-color: var(--accent); color: var(--accent2); }
+.btn:disabled { opacity: .4; cursor: not-allowed; transform: none; }
+.divider { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 13px; }
+.divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+.rules-box {
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 16px;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.7;
+}
+.rules-box strong { color: var(--accent2); }
+
+/* ── GAME LAYOUT ── */
+#game {
+  display: none;
+  width: 100%;
+  max-width: 1100px;
+  padding: 24px 16px;
+  gap: 24px;
+  flex-direction: row;
+  justify-content: center;
+}
+@media (max-width: 800px) {
+  #game { flex-direction: column; align-items: center; }
+}
+
+/* ── CHESS BOARD ── */
+.board-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+#board-container {
+  display: grid;
+  grid-template-columns: 20px repeat(8, 1fr);
+  grid-template-rows: repeat(8, 1fr) 20px;
+  width: min(520px, 90vw);
+  height: min(520px, 90vw);
+  border: 2px solid var(--border2);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.coord-file, .coord-rank {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+  background: var(--surface);
+}
+.sq {
+  position: relative;
+  cursor: pointer;
+  transition: filter .1s;
+  aspect-ratio: 1;
+}
+.sq.light { background: #d4c5a9; }
+.sq.dark  { background: #8b7355; }
+.sq.selected   { outline: 3px solid var(--gold); outline-offset: -3px; }
+.sq.legal-move::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  width: 36%;
+  height: 36%;
+  top: 32%;
+  left: 32%;
+  background: rgba(124, 92, 252, 0.55);
+  pointer-events: none;
+}
+.sq.legal-capture::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 4px solid rgba(124, 92, 252, 0.7);
+  pointer-events: none;
+  border-radius: 2px;
+}
+.sq.last-from { background: rgba(240, 180, 41, 0.35) !important; }
+.sq.last-to   { background: rgba(240, 180, 41, 0.5) !important; }
+.sq:hover { filter: brightness(1.15); }
+.piece {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(min(520px, 90vw) / 10);
+  user-select: none;
+  pointer-events: none;
+  line-height: 1;
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.5));
+}
+
+/* ── SIDE PANEL ── */
+.side-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 280px;
+  flex-shrink: 0;
+}
+
+/* ── PLAYER CARDS ── */
+.player-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  transition: border-color .3s;
+}
+.player-card.active { border-color: var(--accent); }
+.player-avatar {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+.player-avatar.white-av { background: #f0ece0; }
+.player-avatar.black-av { background: #2a2520; border: 1px solid var(--border2); }
+.player-info { flex: 1; min-width: 0; }
+.player-name { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.player-role { font-size: 11px; color: var(--muted); }
+.turn-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent);
+  animation: pulse 1.2s ease-in-out infinite;
+  flex-shrink: 0;
+}
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+/* ── DICE SECTION ── */
+.dice-section {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  text-align: center;
+}
+.dice-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px; }
+.dice-display {
+  width: 72px; height: 72px;
+  margin: 0 auto 12px;
+  background: var(--surface);
+  border: 2px solid var(--border2);
+  border-radius: 16px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 38px;
+  transition: transform .2s;
+  position: relative;
+  overflow: hidden;
+}
+.dice-display.rolling {
+  animation: roll 0.6s ease-out;
+}
+@keyframes roll {
+  0%  { transform: rotate(0deg) scale(1); }
+  25% { transform: rotate(15deg) scale(1.1); }
+  50% { transform: rotate(-10deg) scale(0.95); }
+  75% { transform: rotate(5deg) scale(1.05); }
+  100%{ transform: rotate(0deg) scale(1); }
+}
+.budget-dots {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.budget-dot {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: var(--border2);
+  transition: background .2s, transform .2s;
+}
+.budget-dot.used { background: var(--accent); transform: scale(1.2); }
+.budget-dot.remaining { background: var(--gold); }
+
+/* ── CONTROLS ── */
+.controls { display: flex; flex-direction: column; gap: 8px; }
+.btn-roll { background: var(--gold); color: #1a1200; font-size: 15px; }
+.btn-roll:hover { background: #f5c040; transform: translateY(-1px); }
+.btn-end  { background: transparent; border: 1px solid var(--border2); color: var(--muted); font-size: 13px; }
+.btn-end:hover { border-color: var(--red); color: var(--red); }
+
+/* ── HISTORY ── */
+.history-box {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  flex: 1;
+  min-height: 120px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.history-box h4 { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; }
+.history-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 3px 0;
+  color: var(--muted);
+}
+.history-entry .mv { color: var(--white); font-weight: 500; }
+.history-entry .dice-mini { color: var(--gold); font-size: 10px; }
+
+/* ── STATUS BAR ── */
+.status-bar {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  font-size: 13px;
+  color: var(--muted);
+  text-align: center;
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.status-bar.your-turn { border-color: var(--gold); color: var(--gold); }
+.status-bar.opponent { border-color: var(--border2); color: var(--muted); }
+.status-bar.error-msg { border-color: var(--red); color: var(--red); }
+
+/* ── GAME OVER OVERLAY ── */
+#gameover-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.8);
+  z-index: 100;
+  align-items: center;
+  justify-content: center;
+}
+.gameover-card {
+  background: var(--card);
+  border: 1px solid var(--border2);
+  border-radius: 20px;
+  padding: 48px 40px;
+  text-align: center;
+  max-width: 380px;
+  width: 90%;
+}
+.gameover-emoji { font-size: 64px; margin-bottom: 16px; }
+.gameover-title { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
+.gameover-sub { color: var(--muted); font-size: 15px; margin-bottom: 28px; }
+
+/* ── TOAST ── */
+#toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(80px);
+  background: var(--card);
+  border: 1px solid var(--border2);
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  transition: transform .3s;
+  z-index: 200;
+  white-space: nowrap;
+}
+#toast.show { transform: translateX(-50%) translateY(0); }
+
+/* ── WAITING ── */
+.waiting-dots::after {
+  content: '';
+  animation: dots 1.4s infinite;
+}
+@keyframes dots {
+  0%   { content: ''; }
+  25%  { content: '.'; }
+  50%  { content: '..'; }
+  75%  { content: '...'; }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">Dice<span>Chess</span> ♟️🎲</div>
+  <div class="room-badge" id="room-badge" style="display:none" onclick="copyRoomId()">
+    <span id="room-id-display"></span>
+  </div>
+</header>
+
+<!-- LOBBY -->
+<div id="lobby">
+  <div>
+    <div class="lobby-title">Шахматы<br/><span>с кубиком</span></div>
+    <div class="lobby-sub" style="margin-top:12px">
+      Бросай кубик — получай бюджет ходов. Трать их на любые фигуры.
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Ваше имя</h3>
+    <input class="input" id="player-name" type="text" placeholder="Введите имя..." maxlength="20" value="Игрок"/>
+  </div>
+
+  <div class="card">
+    <h3>Новая игра</h3>
+    <button class="btn btn-primary" onclick="createGame(false)">⚔️ Играть с другом</button>
+    <div style="height:8px"></div>
+    <button class="btn btn-ghost" onclick="createGame(true)">🤖 Играть с ИИ</button>
+  </div>
+
+  <div class="divider">или</div>
+
+  <div class="card">
+    <h3>Войти в комнату</h3>
+    <input class="input" id="join-room-id" type="text" placeholder="Код комнаты (8 символов)..." maxlength="8" oninput="this.value=this.value.toUpperCase()"/>
+    <button class="btn btn-ghost" onclick="joinGame()">🔗 Войти</button>
+  </div>
+
+  <div class="rules-box">
+    <strong>Правила:</strong> каждый ход бросаете кубик (1–6).
+    Выпавшее число — это ваш <strong>бюджет ходов</strong> за раунд.
+    Тратьте его на любые фигуры в любом порядке.
+    Выпало 5 — можете сделать 5 ходов разными фигурами.
+    Победа — мат королю соперника.
+  </div>
+</div>
+
+<!-- GAME -->
+<div id="game" style="display:none">
+  <!-- Board -->
+  <div class="board-wrap">
+    <div id="board-container"></div>
+  </div>
+
+  <!-- Side panel -->
+  <div class="side-panel">
+    <!-- Opponent -->
+    <div class="player-card" id="card-opponent">
+      <div class="player-avatar" id="av-opponent">♟</div>
+      <div class="player-info">
+        <div class="player-name" id="name-opponent">Ожидание<span class="waiting-dots"></span></div>
+        <div class="player-role" id="role-opponent">—</div>
+      </div>
+      <div class="turn-dot" id="dot-opponent" style="display:none"></div>
+    </div>
+
+    <!-- Dice -->
+    <div class="dice-section">
+      <div class="dice-label">Кубик</div>
+      <div class="dice-display" id="dice-face">🎲</div>
+      <div class="budget-dots" id="budget-dots"></div>
+      <div id="budget-text" style="font-size:12px;color:var(--muted);margin-bottom:14px">—</div>
+      <div class="controls">
+        <button class="btn btn-roll" id="btn-roll" onclick="rollDice()" disabled>🎲 Бросить кубик</button>
+        <button class="btn btn-end"  id="btn-end"  onclick="endTurn()"  disabled>Завершить ход раньше</button>
+      </div>
+    </div>
+
+    <!-- Status -->
+    <div class="status-bar" id="status-bar">Подключение...</div>
+
+    <!-- My card -->
+    <div class="player-card" id="card-me">
+      <div class="player-avatar" id="av-me">♙</div>
+      <div class="player-info">
+        <div class="player-name" id="name-me">—</div>
+        <div class="player-role" id="role-me">—</div>
+      </div>
+      <div class="turn-dot" id="dot-me" style="display:none"></div>
+    </div>
+
+    <!-- History -->
+    <div class="history-box">
+      <h4>История ходов</h4>
+      <div id="history-list"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Game over overlay -->
+<div id="gameover-overlay">
+  <div class="gameover-card">
+    <div class="gameover-emoji" id="gameover-emoji">🏆</div>
+    <div class="gameover-title" id="gameover-title">Победа!</div>
+    <div class="gameover-sub"  id="gameover-sub"></div>
+    <button class="btn btn-primary" onclick="location.reload()">Новая игра</button>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<!-- Promotion dialog -->
+<div id="promo-dialog" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:150;align-items:center;justify-content:center;">
+  <div style="background:var(--card);border:1px solid var(--border2);border-radius:16px;padding:24px;text-align:center">
+    <div style="font-size:14px;color:var(--muted);margin-bottom:16px">Выберите фигуру для превращения</div>
+    <div style="display:flex;gap:12px;font-size:48px">
+      <span style="cursor:pointer" onclick="confirmPromotion('q')">♛</span>
+      <span style="cursor:pointer" onclick="confirmPromotion('r')">♜</span>
+      <span style="cursor:pointer" onclick="confirmPromotion('b')">♝</span>
+      <span style="cursor:pointer" onclick="confirmPromotion('n')">♞</span>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── CONFIG ──────────────────────────────────────────────────────────
+const WS_URL = (() => {
+  // Если открыто как файл локально — подключаемся к localhost
+  if (location.protocol === 'file:') return 'ws://localhost:8000/ws';
+  // Если фронтенд на GitHub Pages / Netlify — менять BACKEND_HOST ниже
+  // Если фронтенд лежит рядом с бэкендом (тот же домен) — работает автоматически
+  const BACKEND_HOST = null; // например: 'dice-chess.onrender.com'
+  const host  = BACKEND_HOST || location.host;
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  return `${proto}://${host}/ws`;
+})();
+
+// ── PIECES ──────────────────────────────────────────────────────────
+const PIECE_UNICODE = {
+  K:'♔', Q:'♕', R:'♖', B:'♗', N:'♘', P:'♙',
+  k:'♚', q:'♛', r:'♜', b:'♝', n:'♞', p:'♟',
+};
+const DICE_FACES = ['','⚀','⚁','⚂','⚃','⚄','⚅'];
+
+// ── STATE ────────────────────────────────────────────────────────────
+let ws = null;
+let myRole = null;       // 'white' | 'black'
+let myPlayerId = null;
+let roomId = null;
+let currentTurn = 'white';
+let diceValue = 0;
+let movesLeft = 0;
+let diceRolled = false;
+let selectedSq = null;
+let legalMoves = [];     // from current fen & selected piece
+let lastMove = null;     // { from, to }
+let pendingPromotion = null; // { from, to }
+let flipped = false;     // board orientation
+let gameOver = false;
+
+// Simple chess logic (FEN parser + legal move generator via API)
+let currentFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+// We use a lightweight JS chess engine for move validation on the client side
+// Using chess.js via CDN
+
+// ── CHESS.JS LAZY LOAD ───────────────────────────────────────────────
+let Chess = null;
+let chessInstance = null;
+
+function loadChessJs(cb) {
+  if (Chess) { cb(); return; }
+  const s = document.createElement('script');
+  s.src = 'https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js';
+  s.onload = () => {
+    Chess = window.Chess;
+    cb();
+  };
+  document.head.appendChild(s);
+}
+
+// ── WS SETUP ────────────────────────────────────────────────────────
+function connectWS(onOpen) {
+  ws = new WebSocket(WS_URL);
+  ws.onopen = onOpen;
+  ws.onmessage = e => handleMessage(JSON.parse(e.data));
+  ws.onerror  = () => showToast('Ошибка соединения — убедитесь, что сервер запущен');
+  ws.onclose  = () => { if (!gameOver) showToast('Соединение потеряно'); };
+}
+
+function sendWS(msg) {
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+}
+
+// ── MESSAGE HANDLER ──────────────────────────────────────────────────
+function handleMessage(msg) {
+  switch (msg.type) {
+    case 'joined':
+      myRole     = msg.role;
+      myPlayerId = msg.player_id;
+      roomId     = msg.room_id;
+      flipped    = myRole === 'black';
+      showGame();
+      applyState(msg.state);
+      showRoomBadge();
+      break;
+
+    case 'opponent_joined':
+      showToast(`${msg.name} присоединился!`);
+      applyState(msg.state);
+      break;
+
+    case 'dice_rolled':
+      diceValue  = msg.dice_value;
+      movesLeft  = msg.moves_left;
+      diceRolled = true;
+      animateDice(diceValue);
+      updateBudget();
+      updateControls();
+      if (msg.by !== myRole) setStatus(`Соперник бросил ${diceValue} — делает ${diceValue} ход${plural(diceValue)}`, 'opponent');
+      else setStatus(`Выпало ${diceValue} — ${movesLeft} ход${plural(movesLeft)} в бюджете`, 'your-turn');
+      break;
+
+    case 'moved':
+      currentFen = msg.fen;
+      movesLeft  = msg.moves_left;
+      lastMove   = { from: msg.move.slice(0,2), to: msg.move.slice(2,4) };
+      chessInstance = new Chess(currentFen);
+      renderBoard();
+      addHistoryEntry(msg.by, msg.move, msg.dice_value);
+      updateBudget();
+      if (msg.by === myRole) {
+        selectedSq = null; legalMoves = [];
+        if (movesLeft === 0) setStatus('Бюджет исчерпан — ход переходит', 'opponent');
+        else setStatus(`Ходов осталось: ${movesLeft}`, 'your-turn');
+      } else {
+        setStatus(`Соперник ходит...`, 'opponent');
+      }
+      updateControls();
+      break;
+
+    case 'turn_changed':
+      currentTurn = msg.current_turn;
+      diceRolled  = false;
+      movesLeft   = 0;
+      diceValue   = 0;
+      selectedSq  = null;
+      legalMoves  = [];
+      currentFen  = msg.fen;
+      chessInstance = new Chess(currentFen);
+      renderBoard();
+      updateBudget();
+      updateControls();
+      updateTurnIndicators();
+      if (currentTurn === myRole) setStatus('Ваш ход — бросьте кубик', 'your-turn');
+      else setStatus('Ход соперника', 'opponent');
+      break;
+
+    case 'state':
+      applyState(msg);
+      break;
+
+    case 'game_over':
+      gameOver = true;
+      currentFen = msg.fen;
+      chessInstance = new Chess(currentFen);
+      renderBoard();
+      showGameOver(msg.winner);
+      break;
+
+    case 'error':
+      showToast(msg.message, true);
+      break;
+  }
+}
+
+function applyState(state) {
+  if (!state) return;
+  currentFen  = state.fen || currentFen;
+  currentTurn = state.current_turn || 'white';
+  diceRolled  = state.dice_rolled || false;
+  movesLeft   = state.moves_left  || 0;
+  diceValue   = state.dice_value  || 0;
+
+  loadChessJs(() => {
+    chessInstance = new Chess(currentFen);
+    renderBoard();
+    updateControls();
+    updateTurnIndicators();
+    updateBudget();
+    renderPlayers(state.players);
+    if (state.history) renderHistory(state.history);
+    if (currentTurn === myRole && !diceRolled) setStatus('Ваш ход — бросьте кубик', 'your-turn');
+    else if (currentTurn !== myRole) setStatus('Ход соперника', 'opponent');
+    else if (diceRolled) setStatus(`Ходов осталось: ${movesLeft}`, 'your-turn');
+  });
+}
+
+// ── BOARD RENDER ─────────────────────────────────────────────────────
+const FILES = ['a','b','c','d','e','f','g','h'];
+const RANKS = [8,7,6,5,4,3,2,1];
+
+function squareName(col, row) {
+  // col 0-7 = a-h, row 0-7 = rank 8-1 (when not flipped)
+  const f = flipped ? FILES[7 - col] : FILES[col];
+  const r = flipped ? RANKS[7 - row] : RANKS[row];
+  return `${f}${r}`;
+}
+
+function renderBoard() {
+  const container = document.getElementById('board-container');
+  container.innerHTML = '';
+
+  // Corner
+  const corner = document.createElement('div');
+  corner.className = 'coord-file';
+  container.appendChild(corner);
+
+  // File labels top
+  for (let c = 0; c < 8; c++) {
+    const lbl = document.createElement('div');
+    lbl.className = 'coord-file';
+    lbl.textContent = flipped ? FILES[7-c] : FILES[c];
+    container.appendChild(lbl);
+  }
+
+  for (let row = 0; row < 8; row++) {
+    // Rank label
+    const rlbl = document.createElement('div');
+    rlbl.className = 'coord-rank';
+    rlbl.textContent = flipped ? RANKS[7-row] : RANKS[row];
+    container.appendChild(rlbl);
+
+    for (let col = 0; col < 8; col++) {
+      const sq = squareName(col, row);
+      const isLight = (col + row) % 2 === 0;
+      const div = document.createElement('div');
+      div.className = `sq ${isLight ? 'light' : 'dark'}`;
+      div.dataset.sq = sq;
+
+      // Highlight last move
+      if (lastMove) {
+        if (sq === lastMove.from) div.classList.add('last-from');
+        if (sq === lastMove.to)   div.classList.add('last-to');
+      }
+      // Selected square
+      if (selectedSq === sq) div.classList.add('selected');
+      // Legal moves
+      if (legalMoves.includes(sq)) {
+        const piece = chessInstance ? chessInstance.get(sq) : null;
+        div.classList.add(piece ? 'legal-capture' : 'legal-move');
+      }
+
+      // Piece
+      if (chessInstance) {
+        const piece = chessInstance.get(sq);
+        if (piece) {
+          const key = piece.color === 'w' ? piece.type.toUpperCase() : piece.type.toLowerCase();
+          const span = document.createElement('div');
+          span.className = 'piece';
+          span.textContent = PIECE_UNICODE[key] || '?';
+          div.appendChild(span);
+        }
+      }
+
+      div.addEventListener('click', () => onSquareClick(sq));
+      container.appendChild(div);
+    }
+  }
+
+  // Bottom file labels row
+  const corner2 = document.createElement('div');
+  corner2.className = 'coord-file';
+  container.appendChild(corner2);
+  for (let c = 0; c < 8; c++) {
+    const lbl = document.createElement('div');
+    lbl.className = 'coord-file';
+    lbl.style.gridRow = '10';
+    lbl.textContent = flipped ? FILES[7-c] : FILES[c];
+    container.appendChild(lbl);
+  }
+}
+
+// ── SQUARE CLICK ──────────────────────────────────────────────────────
+function onSquareClick(sq) {
+  if (!chessInstance || gameOver) return;
+  if (currentTurn !== myRole) return;
+  if (!diceRolled || movesLeft <= 0) {
+    showToast('Сначала бросьте кубик!');
+    return;
+  }
+
+  // If clicked on a legal move target
+  if (legalMoves.includes(sq) && selectedSq) {
+    makeMove(selectedSq, sq);
+    return;
+  }
+
+  // Select piece
+  const piece = chessInstance.get(sq);
+  if (piece && ((piece.color === 'w' && myRole === 'white') ||
+                (piece.color === 'b' && myRole === 'black'))) {
+    selectedSq = sq;
+    // Get legal moves for this piece
+    const moves = chessInstance.moves({ square: sq, verbose: true });
+    legalMoves = moves.map(m => m.to);
+    renderBoard();
+  } else {
+    selectedSq = null;
+    legalMoves = [];
+    renderBoard();
+  }
+}
+
+// ── MOVE ─────────────────────────────────────────────────────────────
+function makeMove(from, to) {
+  if (!chessInstance) return;
+
+  // Check promotion
+  const piece = chessInstance.get(from);
+  const isPromotion = piece && piece.type === 'p' &&
+    ((piece.color === 'w' && to[1] === '8') ||
+     (piece.color === 'b' && to[1] === '1'));
+
+  selectedSq = null; legalMoves = [];
+
+  if (isPromotion) {
+    pendingPromotion = { from, to };
+    const dlg = document.getElementById('promo-dialog');
+    dlg.style.display = 'flex';
+    return;
+  }
+
+  sendWS({ type: 'move', from, to });
+}
+
+function confirmPromotion(piece) {
+  document.getElementById('promo-dialog').style.display = 'none';
+  if (pendingPromotion) {
+    sendWS({ type: 'move', from: pendingPromotion.from, to: pendingPromotion.to, promotion: piece });
+    pendingPromotion = null;
+  }
+}
+
+// ── DICE ─────────────────────────────────────────────────────────────
+function rollDice() {
+  if (currentTurn !== myRole || diceRolled || gameOver) return;
+  sendWS({ type: 'roll_dice' });
+}
+
+function animateDice(value) {
+  const el = document.getElementById('dice-face');
+  el.classList.remove('rolling');
+  void el.offsetWidth; // reflow
+  el.classList.add('rolling');
+  el.textContent = DICE_FACES[value] || value;
+  setTimeout(() => el.classList.remove('rolling'), 700);
+}
+
+function endTurn() {
+  sendWS({ type: 'end_turn' });
+}
+
+// ── BUDGET DISPLAY ────────────────────────────────────────────────────
+function updateBudget() {
+  const dotsEl = document.getElementById('budget-dots');
+  const textEl = document.getElementById('budget-text');
+  dotsEl.innerHTML = '';
+
+  if (diceValue === 0) {
+    textEl.textContent = '—';
+    return;
+  }
+
+  const used = diceValue - movesLeft;
+  for (let i = 0; i < diceValue; i++) {
+    const d = document.createElement('div');
+    d.className = 'budget-dot ' + (i < used ? 'used' : 'remaining');
+    dotsEl.appendChild(d);
+  }
+
+  if (movesLeft > 0) textEl.textContent = `Осталось ${movesLeft} из ${diceValue}`;
+  else textEl.textContent = 'Бюджет исчерпан';
+}
+
+// ── CONTROLS ──────────────────────────────────────────────────────────
+function updateControls() {
+  const isMyTurn = currentTurn === myRole && !gameOver;
+  const btnRoll = document.getElementById('btn-roll');
+  const btnEnd  = document.getElementById('btn-end');
+  btnRoll.disabled = !(isMyTurn && !diceRolled);
+  btnEnd.disabled  = !(isMyTurn && diceRolled && movesLeft > 0);
+}
+
+// ── TURN INDICATORS ───────────────────────────────────────────────────
+function updateTurnIndicators() {
+  const isMyTurn = currentTurn === myRole;
+  document.getElementById('card-me').classList.toggle('active', isMyTurn);
+  document.getElementById('card-opponent').classList.toggle('active', !isMyTurn);
+  document.getElementById('dot-me').style.display = isMyTurn ? 'block' : 'none';
+  document.getElementById('dot-opponent').style.display = !isMyTurn ? 'block' : 'none';
+}
+
+// ── PLAYERS PANEL ─────────────────────────────────────────────────────
+function renderPlayers(players) {
+  if (!players || !myRole) return;
+  const opponentRole = myRole === 'white' ? 'black' : 'white';
+  const me = players[myRole];
+  const opp = players[opponentRole];
+
+  if (me) {
+    document.getElementById('name-me').textContent = me.name;
+    document.getElementById('role-me').textContent = myRole === 'white' ? '♙ Белые' : '♟ Чёрные';
+    document.getElementById('av-me').textContent = myRole === 'white' ? '♙' : '♟';
+    document.getElementById('av-me').className = 'player-avatar ' + (myRole === 'white' ? 'white-av' : 'black-av');
+  }
+  if (opp) {
+    document.getElementById('name-opponent').textContent = opp.name;
+    document.getElementById('role-opponent').textContent = opponentRole === 'white' ? '♙ Белые' : '♟ Чёрные';
+    document.getElementById('av-opponent').textContent = opponentRole === 'white' ? '♙' : '♟';
+    document.getElementById('av-opponent').className = 'player-avatar ' + (opponentRole === 'white' ? 'white-av' : 'black-av');
+  } else {
+    document.getElementById('name-opponent').innerHTML = 'Ожидание<span class="waiting-dots"></span>';
+  }
+}
+
+// ── HISTORY ───────────────────────────────────────────────────────────
+function addHistoryEntry(by, move, dice) {
+  const list = document.getElementById('history-list');
+  const el = document.createElement('div');
+  el.className = 'history-entry';
+  el.innerHTML = `<span class="dice-mini">${DICE_FACES[dice]||dice}</span>
+    <span style="color:var(--muted)">${by==='white'?'♙':'♟'}</span>
+    <span class="mv">${move}</span>`;
+  list.prepend(el);
+}
+
+function renderHistory(history) {
+  const list = document.getElementById('history-list');
+  list.innerHTML = '';
+  [...history].reverse().forEach(h => addHistoryEntry(h.turn, h.move, h.dice));
+}
+
+// ── STATUS ────────────────────────────────────────────────────────────
+function setStatus(text, cls = '') {
+  const el = document.getElementById('status-bar');
+  el.textContent = text;
+  el.className = 'status-bar ' + cls;
+}
+
+// ── GAME OVER ─────────────────────────────────────────────────────────
+function showGameOver(winner) {
+  const overlay = document.getElementById('gameover-overlay');
+  const emoji   = document.getElementById('gameover-emoji');
+  const title   = document.getElementById('gameover-title');
+  const sub     = document.getElementById('gameover-sub');
+
+  if (winner === 'draw') {
+    emoji.textContent = '🤝';
+    title.textContent = 'Ничья!';
+    sub.textContent   = 'Равная игра!';
+  } else {
+    const iWin = (winner && myRole === 'white' && winner !== 'draw') ||
+                 false; // simplified
+    emoji.textContent = '🏆';
+    title.textContent = `${winner} победил!`;
+    sub.textContent   = 'Спасибо за игру!';
+  }
+
+  overlay.style.display = 'flex';
+  updateControls();
+}
+
+// ── LOBBY / GAME SWITCH ───────────────────────────────────────────────
+function showGame() {
+  document.getElementById('lobby').style.display = 'none';
+  document.getElementById('game').style.display  = 'flex';
+}
+
+function showRoomBadge() {
+  const badge = document.getElementById('room-badge');
+  badge.style.display = 'flex';
+  document.getElementById('room-id-display').textContent = `Комната: ${roomId}`;
+}
+
+// ── ENTRY POINTS ─────────────────────────────────────────────────────
+function createGame(vsAi) {
+  const name = document.getElementById('player-name').value.trim() || 'Игрок';
+  connectWS(() => sendWS({ type: 'join', name, vs_ai: vsAi, room_id: null }));
+}
+
+function joinGame() {
+  const name   = document.getElementById('player-name').value.trim() || 'Игрок';
+  const roomId = document.getElementById('join-room-id').value.trim().toUpperCase();
+  if (!roomId) { showToast('Введите код комнаты'); return; }
+  connectWS(() => sendWS({ type: 'join', name, room_id: roomId, vs_ai: false }));
+}
+
+// ── UTILS ──────────────────────────────────────────────────────────────
+function plural(n) {
+  if (n === 1) return '';
+  if (n >= 2 && n <= 4) return 'а';
+  return 'ов';
+}
+
+let toastTimer = null;
+function showToast(msg, isError = false) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.style.borderColor = isError ? 'var(--red)' : 'var(--border2)';
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+function copyRoomId() {
+  if (!roomId) return;
+  const url = `${location.origin}${location.pathname}?room=${roomId}`;
+  navigator.clipboard.writeText(url).then(() => showToast('Ссылка скопирована!'));
+}
+
+// ── AUTO-JOIN FROM URL ─────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', () => {
+  const params = new URLSearchParams(location.search);
+  const rid = params.get('room');
+  if (rid) {
+    document.getElementById('join-room-id').value = rid.toUpperCase();
+  }
+
+  // Enter key support
+  document.getElementById('join-room-id').addEventListener('keydown', e => {
+    if (e.key === 'Enter') joinGame();
+  });
+  document.getElementById('player-name').addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('join-room-id').focus();
+  });
+});
+</script>
+</body>
+</html>
