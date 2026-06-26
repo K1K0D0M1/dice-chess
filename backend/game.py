@@ -61,7 +61,9 @@ class GameRoom:
         else:
             raise ValueError("Комната заполнена")
         self.players[role] = Player(id=player_id, name=name, role=role)
-        if len(self.players) == 2:
+        if self.vs_ai:
+            self.status = GameStatus.ACTIVE
+        elif len(self.players) == 2:
             self.status = GameStatus.ACTIVE
         return role
 
@@ -97,7 +99,6 @@ class GameRoom:
         if role is None and not (self.vs_ai and player_id == "ai"):
             raise ValueError("Игрок не найден")
 
-        # Для ИИ-хода не проверяем роль через player_id
         if player_id != "ai" and role != self.current_turn:
             raise ValueError("Сейчас не ваш ход")
 
@@ -118,9 +119,32 @@ class GameRoom:
         if piece.color != expected_color:
             raise ValueError("Вы не можете ходить чужой фигурой")
 
+        # ─── ИСПРАВЛЕННЫЙ БЛОК: Точный расчет стоимости по типам фигур ───
+        from_sq = move.from_square
+        to_sq = move.to_square
+        file_dist = abs(chess.square_file(from_sq) - chess.square_file(to_sq))
+        rank_dist = abs(chess.square_rank(from_sq) - chess.square_rank(to_sq))
+
+        if piece.piece_type == chess.KNIGHT:
+            move_cost = 3  # Конь прыгает на любую доступную ему клетку за 3 очка бюджета
+        elif piece.piece_type == chess.PAWN:
+            # Если идет прямо (file_dist == 0), то цена равна пройденным клеткам (1 или 2)
+            # Если бьет наискосок, то смещение всегда 1 клетка
+            move_cost = rank_dist if file_dist == 0 else 1
+        else:
+            # Для Ладьи, Слона, Ферзя и Короля цена — это количество пройденных клеток
+            move_cost = max(file_dist, rank_dist)
+
+        if move_cost > self.turn_state.moves_left:
+            raise ValueError(f"Недостаточно бюджета клеток. Нужно: {move_cost}, осталось: {self.turn_state.moves_left}")
+
         self.board.push(move)
         self.turn_state.moves_made.append(uci_move)
-        self.turn_state.moves_left -= 1
+        self.turn_state.moves_left -= move_cost  # Списываем стоимость клеток
+
+        # ─── ИСПРАВЛЕНИЕ ОШИБКИ №1: Удерживаем ход, если бюджет остался ───
+        if self.turn_state.moves_left > 0:
+            self.board.turn = chess.WHITE if self.current_turn == PlayerRole.WHITE else chess.BLACK
 
         # Записываем в историю
         self.history.append({
@@ -178,6 +202,9 @@ class GameRoom:
         else:
             self.current_turn = PlayerRole.WHITE
         self.turn_state = TurnState()
+        
+        # СИНХРОНИЗАЦИЯ: передаем ход на доске новому игроку при смене раунда
+        self.board.turn = chess.WHITE if self.current_turn == PlayerRole.WHITE else chess.BLACK
 
     def _state_snapshot(self) -> dict:
         return {

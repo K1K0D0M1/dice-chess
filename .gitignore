@@ -1,0 +1,6 @@
+# Игнорируем тяжелый движок шахмат
+backend/stockfish.exe
+
+# Игнорируем кэш Python
+**/__pycache__/
+*.pyc

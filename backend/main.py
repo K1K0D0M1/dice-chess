@@ -137,8 +137,10 @@ async def websocket_endpoint(ws: WebSocket):
         async for raw in ws.iter_text():
             try:
                 msg = json.loads(raw)
+                print("CLIENT:", msg)
             except json.JSONDecodeError:
                 await send(ws, {"type": "error", "message": "Неверный формат JSON"})
+                print("JOINED SENT")
                 continue
 
             msg_type = msg.get("type")
@@ -147,7 +149,7 @@ async def websocket_endpoint(ws: WebSocket):
             if msg_type == "join":
                 name = msg.get("name", "Игрок")[:20]
                 vs_ai = msg.get("vs_ai", False)
-                requested_room = msg.get("room_id", "").strip().upper()
+                requested_room = (msg.get("room_id") or "").strip().upper()
 
                 if requested_room:
                     room = get_room(requested_room)
@@ -304,6 +306,7 @@ async def health():
 
 # Отдаём фронтенд — ищем index.html рядом с backend/ или в frontend/
 _FRONTEND_CANDIDATES = [
+    r"C:\Users\ASUS\Downloads\dice_chess\dice_chess\frontend\index.html",
     os.path.join(os.path.dirname(__file__), "..", "frontend", "index.html"),
     os.path.join(os.path.dirname(__file__), "index.html"),
     "/opt/render/project/src/frontend/index.html",

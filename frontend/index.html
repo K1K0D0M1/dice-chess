@@ -167,9 +167,9 @@ header {
 #board-container {
   display: grid;
   grid-template-columns: 20px repeat(8, 1fr);
-  grid-template-rows: repeat(8, 1fr) 20px;
+  grid-template-rows: 20px repeat(8, 1fr) 20px;
   width: min(520px, 90vw);
-  height: min(520px, 90vw);
+  height: min(544px, calc(90vw + 24px));
   border: 2px solid var(--border2);
   border-radius: var(--radius);
   overflow: hidden;
@@ -215,17 +215,31 @@ header {
 .sq.last-from { background: rgba(240, 180, 41, 0.35) !important; }
 .sq.last-to   { background: rgba(240, 180, 41, 0.5) !important; }
 .sq:hover { filter: brightness(1.15); }
+
+/* ── СТИЛИЗАЦИЯ КАСТОМНЫХ ФИГУР ── */
 .piece {
   position: absolute;
   inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: calc(min(520px, 90vw) / 10);
+  font-size: calc(min(520px, 90vw) / 9.5);
   user-select: none;
   pointer-events: none;
   line-height: 1;
-  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.5));
+}
+/* Белые фигуры: сплошной белый цвет с мягкой темной обводкой для читаемости */
+.piece.white-piece {
+  color: #ffffff;
+  text-shadow: 
+    0px 0px 2px #000000, 
+    0px 1px 3px rgba(0, 0, 0, 0.6);
+}
+/* Черные фигуры: глубокий графитовый цвет */
+.piece.black-piece {
+  color: #16161a;
+  text-shadow: 
+    0px 0px 1px rgba(255, 255, 255, 0.2);
 }
 
 /* ── SIDE PANEL ── */
@@ -256,8 +270,8 @@ header {
   font-size: 18px;
   flex-shrink: 0;
 }
-.player-avatar.white-av { background: #f0ece0; }
-.player-avatar.black-av { background: #2a2520; border: 1px solid var(--border2); }
+.player-avatar.white-av { background: #f0ece0; color: #16161a; }
+.player-avatar.black-av { background: #2a2520; color: #ffffff; border: 1px solid var(--border2); }
 .player-info { flex: 1; min-width: 0; }
 .player-name { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .player-role { font-size: 11px; color: var(--muted); }
@@ -533,10 +547,10 @@ header {
   <div style="background:var(--card);border:1px solid var(--border2);border-radius:16px;padding:24px;text-align:center">
     <div style="font-size:14px;color:var(--muted);margin-bottom:16px">Выберите фигуру для превращения</div>
     <div style="display:flex;gap:12px;font-size:48px">
-      <span style="cursor:pointer" onclick="confirmPromotion('q')">♛</span>
-      <span style="cursor:pointer" onclick="confirmPromotion('r')">♜</span>
-      <span style="cursor:pointer" onclick="confirmPromotion('b')">♝</span>
-      <span style="cursor:pointer" onclick="confirmPromotion('n')">♞</span>
+      <span style="cursor:pointer" class="piece black-piece" style="position:static" onclick="confirmPromotion('q')">♛</span>
+      <span style="cursor:pointer" class="piece black-piece" style="position:static" onclick="confirmPromotion('r')">♜</span>
+      <span style="cursor:pointer" class="piece black-piece" style="position:static" onclick="confirmPromotion('b')">♝</span>
+      <span style="cursor:pointer" class="piece black-piece" style="position:static" onclick="confirmPromotion('n')">♞</span>
     </div>
   </div>
 </div>
@@ -544,19 +558,15 @@ header {
 <script>
 // ── CONFIG ──────────────────────────────────────────────────────────
 const WS_URL = (() => {
-  // Если открыто как файл локально — подключаемся к localhost
   if (location.protocol === 'file:') return 'ws://localhost:8000/ws';
-  // Если фронтенд на GitHub Pages / Netlify — менять BACKEND_HOST ниже
-  // Если фронтенд лежит рядом с бэкендом (тот же домен) — работает автоматически
-  const BACKEND_HOST = null; // например: 'dice-chess.onrender.com'
+  const BACKEND_HOST = null;
   const host  = BACKEND_HOST || location.host;
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   return `${proto}://${host}/ws`;
 })();
 
-// ── PIECES ──────────────────────────────────────────────────────────
+// ИСПОЛЬЗУЕМ СТРОГО СПЛОШНЫЕ СИМВОЛЫ ДЛЯ ОБОИХ ЦВЕТОВ
 const PIECE_UNICODE = {
-  K:'♔', Q:'♕', R:'♖', B:'♗', N:'♘', P:'♙',
   k:'♚', q:'♛', r:'♜', b:'♝', n:'♞', p:'♟',
 };
 const DICE_FACES = ['','⚀','⚁','⚂','⚃','⚄','⚅'];
@@ -571,27 +581,24 @@ let diceValue = 0;
 let movesLeft = 0;
 let diceRolled = false;
 let selectedSq = null;
-let legalMoves = [];     // from current fen & selected piece
-let lastMove = null;     // { from, to }
-let pendingPromotion = null; // { from, to }
-let flipped = false;     // board orientation
+let legalMoves = [];     
+let lastMove = null;     
+let pendingPromotion = null; 
+let flipped = false;     
 let gameOver = false;
 
-// Simple chess logic (FEN parser + legal move generator via API)
 let currentFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
-// We use a lightweight JS chess engine for move validation on the client side
-// Using chess.js via CDN
 
 // ── CHESS.JS LAZY LOAD ───────────────────────────────────────────────
-let Chess = null;
+let _chessLoaded = false;
 let chessInstance = null;
 
 function loadChessJs(cb) {
-  if (Chess) { cb(); return; }
+  if (_chessLoaded && window.Chess) { cb(); return; }
   const s = document.createElement('script');
   s.src = 'https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js';
   s.onload = () => {
-    Chess = window.Chess;
+    _chessLoaded = true;
     cb();
   };
   document.head.appendChild(s);
@@ -607,11 +614,13 @@ function connectWS(onOpen) {
 }
 
 function sendWS(msg) {
+  console.log("TO SERVER:", msg);
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
 }
 
 // ── MESSAGE HANDLER ──────────────────────────────────────────────────
 function handleMessage(msg) {
+  console.log(msg);
   switch (msg.type) {
     case 'joined':
       myRole     = msg.role;
@@ -619,6 +628,9 @@ function handleMessage(msg) {
       roomId     = msg.room_id;
       flipped    = myRole === 'black';
       showGame();
+      if (msg.state && msg.state.players && msg.state.players['black']) {
+        msg.state.status = 'active';
+      }
       applyState(msg.state);
       showRoomBadge();
       break;
@@ -635,24 +647,25 @@ function handleMessage(msg) {
       animateDice(diceValue);
       updateBudget();
       updateControls();
-      if (msg.by !== myRole) setStatus(`Соперник бросил ${diceValue} — делает ${diceValue} ход${plural(diceValue)}`, 'opponent');
-      else setStatus(`Выпало ${diceValue} — ${movesLeft} ход${plural(movesLeft)} в бюджете`, 'your-turn');
+      if (msg.by !== myRole) setStatus(`Соперник бросил ${diceValue} — делает ходы`, 'opponent');
+      else setStatus(`Выпало ${diceValue} — ${movesLeft} очков в бюджете`, 'your-turn');
       break;
 
     case 'moved':
       currentFen = msg.fen;
       movesLeft  = msg.moves_left;
       lastMove   = { from: msg.move.slice(0,2), to: msg.move.slice(2,4) };
-      chessInstance = new Chess(currentFen);
+      chessInstance = new window.Chess(currentFen);
+      selectedSq = null;
+      legalMoves = [];
       renderBoard();
       addHistoryEntry(msg.by, msg.move, msg.dice_value);
       updateBudget();
       if (msg.by === myRole) {
-        selectedSq = null; legalMoves = [];
         if (movesLeft === 0) setStatus('Бюджет исчерпан — ход переходит', 'opponent');
-        else setStatus(`Ходов осталось: ${movesLeft}`, 'your-turn');
+        else setStatus(`Ходов осталось: ${movesLeft} — выбери следующую фигуру`, 'your-turn');
       } else {
-        setStatus(`Соперник ходит...`, 'opponent');
+        setStatus('Соперник ходит...', 'opponent');
       }
       updateControls();
       break;
@@ -665,7 +678,7 @@ function handleMessage(msg) {
       selectedSq  = null;
       legalMoves  = [];
       currentFen  = msg.fen;
-      chessInstance = new Chess(currentFen);
+      chessInstance = new window.Chess(currentFen);
       renderBoard();
       updateBudget();
       updateControls();
@@ -681,7 +694,7 @@ function handleMessage(msg) {
     case 'game_over':
       gameOver = true;
       currentFen = msg.fen;
-      chessInstance = new Chess(currentFen);
+      chessInstance = new window.Chess(currentFen);
       renderBoard();
       showGameOver(msg.winner);
       break;
@@ -701,82 +714,90 @@ function applyState(state) {
   diceValue   = state.dice_value  || 0;
 
   loadChessJs(() => {
-    chessInstance = new Chess(currentFen);
+    chessInstance = new window.Chess(currentFen);
     renderBoard();
     updateControls();
     updateTurnIndicators();
     updateBudget();
     renderPlayers(state.players);
     if (state.history) renderHistory(state.history);
-    if (currentTurn === myRole && !diceRolled) setStatus('Ваш ход — бросьте кубик', 'your-turn');
-    else if (currentTurn !== myRole) setStatus('Ход соперника', 'opponent');
-    else if (diceRolled) setStatus(`Ходов осталось: ${movesLeft}`, 'your-turn');
+
+    const hasOpponent = state.players && (state.players['black'] || state.players['white']);
+    const isActive = state.status === 'active' || hasOpponent;
+
+    if (!isActive) {
+      setStatus('Ожидание соперника...', 'opponent');
+    } else if (currentTurn === myRole && !diceRolled) {
+      setStatus('Ваш ход — бросьте кубик', 'your-turn');
+    } else if (currentTurn !== myRole) {
+      setStatus('Ход соперника', 'opponent');
+    } else if (diceRolled) {
+      setStatus(`Ходов осталось: ${movesLeft}`, 'your-turn');
+    }
   });
 }
 
-// ── BOARD RENDER ─────────────────────────────────────────────────────
+// ── BOARD RENDER ──
 const FILES = ['a','b','c','d','e','f','g','h'];
 const RANKS = [8,7,6,5,4,3,2,1];
-
-function squareName(col, row) {
-  // col 0-7 = a-h, row 0-7 = rank 8-1 (when not flipped)
-  const f = flipped ? FILES[7 - col] : FILES[col];
-  const r = flipped ? RANKS[7 - row] : RANKS[row];
-  return `${f}${r}`;
-}
 
 function renderBoard() {
   const container = document.getElementById('board-container');
   container.innerHTML = '';
 
-  // Corner
-  const corner = document.createElement('div');
-  corner.className = 'coord-file';
-  container.appendChild(corner);
+  const dispFiles = flipped ? [...FILES].reverse() : FILES;
+  const dispRanks = flipped ? [...RANKS].reverse() : RANKS;
 
-  // File labels top
+  const cornerTop = document.createElement('div');
+  cornerTop.className = 'coord-file';
+  container.appendChild(cornerTop);
   for (let c = 0; c < 8; c++) {
     const lbl = document.createElement('div');
     lbl.className = 'coord-file';
-    lbl.textContent = flipped ? FILES[7-c] : FILES[c];
+    lbl.textContent = dispFiles[c];
     container.appendChild(lbl);
   }
 
   for (let row = 0; row < 8; row++) {
-    // Rank label
     const rlbl = document.createElement('div');
     rlbl.className = 'coord-rank';
-    rlbl.textContent = flipped ? RANKS[7-row] : RANKS[row];
+    rlbl.textContent = dispRanks[row];
     container.appendChild(rlbl);
 
     for (let col = 0; col < 8; col++) {
-      const sq = squareName(col, row);
-      const isLight = (col + row) % 2 === 0;
+      const file = dispFiles[col];
+      const rank = dispRanks[row];
+      const sq = file + rank;
+
+      const fileIdx = FILES.indexOf(file);
+      const rankIdx = rank - 1; 
+      const isLight = (fileIdx + rankIdx) % 2 !== 0;
+
       const div = document.createElement('div');
-      div.className = `sq ${isLight ? 'light' : 'dark'}`;
+      div.className = 'sq ' + (isLight ? 'light' : 'dark');
       div.dataset.sq = sq;
 
-      // Highlight last move
       if (lastMove) {
         if (sq === lastMove.from) div.classList.add('last-from');
         if (sq === lastMove.to)   div.classList.add('last-to');
       }
-      // Selected square
       if (selectedSq === sq) div.classList.add('selected');
-      // Legal moves
       if (legalMoves.includes(sq)) {
-        const piece = chessInstance ? chessInstance.get(sq) : null;
-        div.classList.add(piece ? 'legal-capture' : 'legal-move');
+        const p = chessInstance ? chessInstance.get(sq) : null;
+        div.classList.add(p ? 'legal-capture' : 'legal-move');
       }
 
-      // Piece
       if (chessInstance) {
         const piece = chessInstance.get(sq);
         if (piece) {
-          const key = piece.color === 'w' ? piece.type.toUpperCase() : piece.type.toLowerCase();
           const span = document.createElement('div');
-          span.className = 'piece';
-          span.textContent = PIECE_UNICODE[key] || '?';
+          
+          // ДИНАМИЧЕСКИЙ ОКРАС: делим на классы белых и черных фигур
+          const colorClass = piece.color === 'w' ? 'white-piece' : 'black-piece';
+          span.className = 'piece ' + colorClass;
+          
+          // Всегда берем красивую сплошную фигуру из маппинга нижнего регистра
+          span.textContent = PIECE_UNICODE[piece.type.toLowerCase()] || '?';
           div.appendChild(span);
         }
       }
@@ -786,15 +807,13 @@ function renderBoard() {
     }
   }
 
-  // Bottom file labels row
-  const corner2 = document.createElement('div');
-  corner2.className = 'coord-file';
-  container.appendChild(corner2);
+  const cornerBot = document.createElement('div');
+  cornerBot.className = 'coord-file';
+  container.appendChild(cornerBot);
   for (let c = 0; c < 8; c++) {
     const lbl = document.createElement('div');
     lbl.className = 'coord-file';
-    lbl.style.gridRow = '10';
-    lbl.textContent = flipped ? FILES[7-c] : FILES[c];
+    lbl.textContent = dispFiles[c];
     container.appendChild(lbl);
   }
 }
@@ -808,18 +827,15 @@ function onSquareClick(sq) {
     return;
   }
 
-  // If clicked on a legal move target
   if (legalMoves.includes(sq) && selectedSq) {
     makeMove(selectedSq, sq);
     return;
   }
 
-  // Select piece
   const piece = chessInstance.get(sq);
   if (piece && ((piece.color === 'w' && myRole === 'white') ||
                 (piece.color === 'b' && myRole === 'black'))) {
     selectedSq = sq;
-    // Get legal moves for this piece
     const moves = chessInstance.moves({ square: sq, verbose: true });
     legalMoves = moves.map(m => m.to);
     renderBoard();
@@ -834,7 +850,6 @@ function onSquareClick(sq) {
 function makeMove(from, to) {
   if (!chessInstance) return;
 
-  // Check promotion
   const piece = chessInstance.get(from);
   const isPromotion = piece && piece.type === 'p' &&
     ((piece.color === 'w' && to[1] === '8') ||
@@ -869,7 +884,7 @@ function rollDice() {
 function animateDice(value) {
   const el = document.getElementById('dice-face');
   el.classList.remove('rolling');
-  void el.offsetWidth; // reflow
+  void el.offsetWidth; 
   el.classList.add('rolling');
   el.textContent = DICE_FACES[value] || value;
   setTimeout(() => el.classList.remove('rolling'), 700);
@@ -928,17 +943,18 @@ function renderPlayers(players) {
 
   if (me) {
     document.getElementById('name-me').textContent = me.name;
-    document.getElementById('role-me').textContent = myRole === 'white' ? '♙ Белые' : '♟ Чёрные';
-    document.getElementById('av-me').textContent = myRole === 'white' ? '♙' : '♟';
+    document.getElementById('role-me').textContent = myRole === 'white' ? ' Белые' : ' Чёрные';
+    document.getElementById('av-me').textContent = '♟';
     document.getElementById('av-me').className = 'player-avatar ' + (myRole === 'white' ? 'white-av' : 'black-av');
   }
   if (opp) {
     document.getElementById('name-opponent').textContent = opp.name;
-    document.getElementById('role-opponent').textContent = opponentRole === 'white' ? '♙ Белые' : '♟ Чёрные';
-    document.getElementById('av-opponent').textContent = opponentRole === 'white' ? '♙' : '♟';
+    document.getElementById('role-opponent').textContent = opponentRole === 'white' ? ' Белые' : ' Чёрные';
+    document.getElementById('av-opponent').textContent = '♟';
     document.getElementById('av-opponent').className = 'player-avatar ' + (opponentRole === 'white' ? 'white-av' : 'black-av');
   } else {
-    document.getElementById('name-opponent').innerHTML = 'Ожидание<span class="waiting-dots"></span>';
+    document.getElementById('name-opponent').innerHTML = 'Ожидание соперника<span class="waiting-dots"></span>';
+    document.getElementById('role-opponent').textContent = '—';
   }
 }
 
@@ -948,7 +964,7 @@ function addHistoryEntry(by, move, dice) {
   const el = document.createElement('div');
   el.className = 'history-entry';
   el.innerHTML = `<span class="dice-mini">${DICE_FACES[dice]||dice}</span>
-    <span style="color:var(--muted)">${by==='white'?'♙':'♟'}</span>
+    <span style="color:var(--muted)">${by==='white'?' White':' Black'}</span>
     <span class="mv">${move}</span>`;
   list.prepend(el);
 }
@@ -978,8 +994,6 @@ function showGameOver(winner) {
     title.textContent = 'Ничья!';
     sub.textContent   = 'Равная игра!';
   } else {
-    const iWin = (winner && myRole === 'white' && winner !== 'draw') ||
-                 false; // simplified
     emoji.textContent = '🏆';
     title.textContent = `${winner} победил!`;
     sub.textContent   = 'Спасибо за игру!';
@@ -1014,13 +1028,6 @@ function joinGame() {
   connectWS(() => sendWS({ type: 'join', name, room_id: roomId, vs_ai: false }));
 }
 
-// ── UTILS ──────────────────────────────────────────────────────────────
-function plural(n) {
-  if (n === 1) return '';
-  if (n >= 2 && n <= 4) return 'а';
-  return 'ов';
-}
-
 let toastTimer = null;
 function showToast(msg, isError = false) {
   const el = document.getElementById('toast');
@@ -1037,7 +1044,6 @@ function copyRoomId() {
   navigator.clipboard.writeText(url).then(() => showToast('Ссылка скопирована!'));
 }
 
-// ── AUTO-JOIN FROM URL ─────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', () => {
   const params = new URLSearchParams(location.search);
   const rid = params.get('room');
@@ -1045,7 +1051,6 @@ window.addEventListener('DOMContentLoaded', () => {
     document.getElementById('join-room-id').value = rid.toUpperCase();
   }
 
-  // Enter key support
   document.getElementById('join-room-id').addEventListener('keydown', e => {
     if (e.key === 'Enter') joinGame();
   });
