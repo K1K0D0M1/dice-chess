@@ -309,7 +309,6 @@ _FRONTEND_CANDIDATES = [
     r"C:\Users\ASUS\Downloads\dice_chess\dice_chess\frontend\index.html",
     os.path.join(os.path.dirname(__file__), "..", "frontend", "index.html"),
     os.path.join(os.path.dirname(__file__), "index.html"),
-    "/opt/render/project/src/frontend/index.html",
 ]
 _FRONTEND_PATH = next((p for p in _FRONTEND_CANDIDATES if os.path.isfile(p)), None)
 

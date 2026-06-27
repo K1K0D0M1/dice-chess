@@ -16,11 +16,10 @@ import shutil, os
 # Fallback to system path
 _SF_CANDIDATES = [
     os.environ.get("STOCKFISH_PATH", ""),
-    r"C:\Users\ASUS\Downloads\dice_chess\dice_chess\backend\stockfish.exe",
-    "/opt/stockfish/stockfish",
-    "/usr/games/stockfish",
-    "/usr/bin/stockfish",
-    shutil.which("stockfish") or "",
+    r"C:\Users\ASUS\Downloads\dice_chess\dice_chess\backend\stockfish.exe", # Ваш локальный путь на Windows
+    "/usr/games/stockfish", # Для Linux (если запустите на Linux локально)
+    "/usr/bin/stockfish",   # Для Linux
+    shutil.which("stockfish") or "", # Автопоиск в системном PATH
 ]
 STOCKFISH_PATH = next((p for p in _SF_CANDIDATES if p and os.path.isfile(p)), "stockfish")
 
