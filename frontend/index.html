@@ -543,14 +543,14 @@ header {
 <div id="toast"></div>
 
 <!-- Promotion dialog -->
-<div id="promo-dialog" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:150;align-items:center;justify-content:center;">
-  <div style="background:var(--card);border:1px solid var(--border2);border-radius:16px;padding:24px;text-align:center">
-    <div style="font-size:14px;color:var(--muted);margin-bottom:16px">Выберите фигуру для превращения</div>
-    <div style="display:flex;gap:12px;font-size:48px">
-      <span style="cursor:pointer" class="piece black-piece" style="position:static" onclick="confirmPromotion('q')">♛</span>
-      <span style="cursor:pointer" class="piece black-piece" style="position:static" onclick="confirmPromotion('r')">♜</span>
-      <span style="cursor:pointer" class="piece black-piece" style="position:static" onclick="confirmPromotion('b')">♝</span>
-      <span style="cursor:pointer" class="piece black-piece" style="position:static" onclick="confirmPromotion('n')">♞</span>
+<div id="promo-dialog" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:150;align-items:center;justify-content:center;">
+  <div style="background:var(--card);border:1px solid var(--border2);border-radius:16px;padding:32px 40px;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,0.5)">
+    <div style="font-size:14px;color:var(--muted);margin-bottom:20px;text-transform:uppercase;letter-spacing:0.5px">Выберите фигуру для превращения</div>
+    <div style="display:flex;gap:16px;justify-content:center">
+      <button onclick="confirmPromotion('q')" style="background:var(--surface);border:2px solid var(--border2);border-radius:12px;width:72px;height:72px;font-size:44px;cursor:pointer;transition:all .15s;display:flex;align-items:center;justify-content:center;" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border2)'">♛</button>
+      <button onclick="confirmPromotion('r')" style="background:var(--surface);border:2px solid var(--border2);border-radius:12px;width:72px;height:72px;font-size:44px;cursor:pointer;transition:all .15s;display:flex;align-items:center;justify-content:center;" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border2)'">♜</button>
+      <button onclick="confirmPromotion('b')" style="background:var(--surface);border:2px solid var(--border2);border-radius:12px;width:72px;height:72px;font-size:44px;cursor:pointer;transition:all .15s;display:flex;align-items:center;justify-content:center;" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border2)'">♝</button>
+      <button onclick="confirmPromotion('n')" style="background:var(--surface);border:2px solid var(--border2);border-radius:12px;width:72px;height:72px;font-size:44px;cursor:pointer;transition:all .15s;display:flex;align-items:center;justify-content:center;" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border2)'">♞</button>
     </div>
   </div>
 </div>
@@ -592,6 +592,22 @@ let currentFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 // ── CHESS.JS LAZY LOAD ───────────────────────────────────────────────
 let _chessLoaded = false;
 let chessInstance = null;
+
+// НАЧАЛО ВСТАВКИ: Функция безопасной инициализации FEN
+function initChess(fen) {
+  const tempChess = new window.Chess();
+  const validation = tempChess.validate_fen(fen);
+  
+  // Если FEN невалиден для стандартных шахмат (например, шах при удержании хода),
+  // временно переключаем активную сторону в строке FEN (w -> b или b -> w), чтобы загрузить доску
+  if (!validation.valid) {
+    const tokens = fen.split(' ');
+    tokens[1] = tokens[1] === 'w' ? 'b' : 'w';
+    fen = tokens.join(' ');
+  }
+  return new window.Chess(fen);
+}
+// КОНЕЦ ВСТАВКИ
 
 function loadChessJs(cb) {
   if (_chessLoaded && window.Chess) { cb(); return; }
@@ -655,7 +671,7 @@ function handleMessage(msg) {
       currentFen = msg.fen;
       movesLeft  = msg.moves_left;
       lastMove   = { from: msg.move.slice(0,2), to: msg.move.slice(2,4) };
-      chessInstance = new window.Chess(currentFen);
+      chessInstance = initChess(currentFen);
       selectedSq = null;
       legalMoves = [];
       renderBoard();
@@ -678,7 +694,7 @@ function handleMessage(msg) {
       selectedSq  = null;
       legalMoves  = [];
       currentFen  = msg.fen;
-      chessInstance = new window.Chess(currentFen);
+      chessInstance = initChess(currentFen);
       renderBoard();
       updateBudget();
       updateControls();
@@ -694,7 +710,7 @@ function handleMessage(msg) {
     case 'game_over':
       gameOver = true;
       currentFen = msg.fen;
-      chessInstance = new window.Chess(currentFen);
+      chessInstance = initChess(currentFen);
       renderBoard();
       showGameOver(msg.winner);
       break;
@@ -714,7 +730,7 @@ function applyState(state) {
   diceValue   = state.dice_value  || 0;
 
   loadChessJs(() => {
-    chessInstance = new window.Chess(currentFen);
+    chessInstance = initChess(currentFen);
     renderBoard();
     updateControls();
     updateTurnIndicators();
@@ -831,6 +847,18 @@ function onSquareClick(sq) {
     makeMove(selectedSq, sq);
     return;
   }
+
+  // НАЧАЛО ВСТАВКИ: Резервный ход для Dice Chess (если chess.js не выдал ходов из-за шаха)
+  if (selectedSq && selectedSq !== sq) {
+    const pieceOnTarget = chessInstance.get(sq);
+    const myColorSymbol = myRole === 'white' ? 'w' : 'b';
+    // Если мы уже выбрали фигуру и кликаем по пустой клетке или фигуре соперника
+    if (!pieceOnTarget || pieceOnTarget.color !== myColorSymbol) {
+      makeMove(selectedSq, sq);
+      return;
+    }
+  }
+  // КОНЕЦ ВСТАВКИ
 
   const piece = chessInstance.get(sq);
   if (piece && ((piece.color === 'w' && myRole === 'white') ||
