@@ -214,6 +214,7 @@ header {
 }
 .sq.last-from { background: rgba(240, 180, 41, 0.35) !important; }
 .sq.last-to   { background: rgba(240, 180, 41, 0.5) !important; }
+.sq.in-check  { background: rgba(232, 85, 85, 0.75) !important; }
 .sq:hover { filter: brightness(1.15); }
 
 /* ── СТИЛИЗАЦИЯ КАСТОМНЫХ ФИГУР ── */
@@ -453,19 +454,28 @@ header {
     <input class="input" id="player-name" type="text" placeholder="Введите имя..." maxlength="20" value="Игрок"/>
   </div>
 
-  <div class="card">
-    <h3>Новая игра</h3>
-    <button class="btn btn-primary" onclick="createGame(false)">⚔️ Играть с другом</button>
+<!-- БЛОК ДЕЙСТВИЙ: ГЛАВНЫЙ -->
+  <div class="card" id="lobby-main-actions">
+    <h3>Выбор режима</h3>
+    <button class="btn btn-primary" onclick="showFriendOptions()">⚔️ Играть с другом</button>
     <div style="height:8px"></div>
     <button class="btn btn-ghost" onclick="createGame(true)">🤖 Играть с ИИ</button>
   </div>
 
-  <div class="divider">или</div>
-
-  <div class="card">
-    <h3>Войти в комнату</h3>
+  <!-- БЛОК ДЕЙСТВИЙ: ИГРА С ДРУГОМ (СКРЫТ ПО УМОЛЧАНИЮ) -->
+  <div class="card" id="lobby-friend-actions" style="display:none;">
+    <h3>Игра с другом</h3>
+    <button class="btn btn-primary" onclick="createGame(false)">➕ Создать новую комнату</button>
+    
+    <div style="height:16px"></div>
+    <div class="divider">или подключиться</div>
+    <div style="height:12px"></div>
+    
     <input class="input" id="join-room-id" type="text" placeholder="Код комнаты (8 символов)..." maxlength="8" oninput="this.value=this.value.toUpperCase()"/>
-    <button class="btn btn-ghost" onclick="joinGame()">🔗 Войти</button>
+    <button class="btn btn-ghost" onclick="joinGame()">🔗 Подключиться к комнате</button>
+    
+    <div style="height:12px"></div>
+    <button class="btn btn-ghost" style="font-size:13px; border:none; color:var(--muted);" onclick="showMainOptions()">← Назад</button>
   </div>
 
   <div class="rules-box">
@@ -587,14 +597,38 @@ let pendingPromotion = null;
 let flipped = false;     
 let gameOver = false;
 
+let capturesMade = 0; // взятий в текущем раунде
+
 let currentFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
 // ── CHESS.JS LAZY LOAD ───────────────────────────────────────────────
 let _chessLoaded = false;
 let chessInstance = null;
 
+// Инициализация chess.js из FEN.
+// chess.js 0.10 не умеет работать с FEN, где активная сторона не совпадает
+// с тем, кто «должен» ходить по правилам (это происходит при удержании хода в Dice Chess).
+// Поэтому мы храним «настоящий» активный цвет отдельно (activeFenColor),
+// и для вычисления легальных ходов подменяем FEN на «нейтральный».
+let activeFenColor = 'w'; // реальный цвет, чьи фигуры можно двигать прямо сейчас
+
+function getChessForMoves() {
+  if (!chessInstance) return null;
+  const tokens = currentFen.split(' ');
+  const fenColor = tokens[1];
+  if (fenColor === activeFenColor) return chessInstance;
+  // Создаём копию с нужным цветом для расчёта легальных ходов
+  const fixedTokens = [...tokens];
+  fixedTokens[1] = activeFenColor;
+  const fixedChess = new window.Chess();
+  if (fixedChess.load(fixedTokens.join(' '))) return fixedChess;
+  return chessInstance;
+}
+
 // НАЧАЛО ВСТАВКИ: Функция безопасной инициализации FEN
 function initChess(fen) {
+  const tokens = fen.split(' ');
+  activeFenColor = tokens[1] || 'w';
   const tempChess = new window.Chess();
   const validation = tempChess.validate_fen(fen);
   
@@ -670,6 +704,7 @@ function handleMessage(msg) {
     case 'moved':
       currentFen = msg.fen;
       movesLeft  = msg.moves_left;
+      capturesMade = msg.captures_made || 0;
       lastMove   = { from: msg.move.slice(0,2), to: msg.move.slice(2,4) };
       chessInstance = initChess(currentFen);
       selectedSq = null;
@@ -678,7 +713,8 @@ function handleMessage(msg) {
       addHistoryEntry(msg.by, msg.move, msg.dice_value);
       updateBudget();
       if (msg.by === myRole) {
-        if (movesLeft === 0) setStatus('Бюджет исчерпан — ход переходит', 'opponent');
+        if (movesLeft === 0 && capturesMade > 0) setStatus('Взятие! Ход переходит сопернику', 'opponent');
+        else if (movesLeft === 0) setStatus('Бюджет исчерпан — ход переходит', 'opponent');
         else setStatus(`Ходов осталось: ${movesLeft} — выбери следующую фигуру`, 'your-turn');
       } else {
         setStatus('Соперник ходит...', 'opponent');
@@ -691,6 +727,7 @@ function handleMessage(msg) {
       diceRolled  = false;
       movesLeft   = 0;
       diceValue   = 0;
+      capturesMade = 0;
       selectedSq  = null;
       legalMoves  = [];
       currentFen  = msg.fen;
@@ -723,11 +760,12 @@ function handleMessage(msg) {
 
 function applyState(state) {
   if (!state) return;
-  currentFen  = state.fen || currentFen;
-  currentTurn = state.current_turn || 'white';
-  diceRolled  = state.dice_rolled || false;
-  movesLeft   = state.moves_left  || 0;
-  diceValue   = state.dice_value  || 0;
+  currentFen   = state.fen || currentFen;
+  currentTurn  = state.current_turn || 'white';
+  diceRolled   = state.dice_rolled || false;
+  movesLeft    = state.moves_left  || 0;
+  diceValue    = state.dice_value  || 0;
+  capturesMade = state.captures_made || 0;
 
   loadChessJs(() => {
     chessInstance = initChess(currentFen);
@@ -764,6 +802,24 @@ function renderBoard() {
   const dispFiles = flipped ? [...FILES].reverse() : FILES;
   const dispRanks = flipped ? [...RANKS].reverse() : RANKS;
 
+  // Находим клетку короля под шахом
+  let checkSq = null;
+  if (chessInstance && chessInstance.in_check()) {
+    const turnInCheck = chessInstance.turn(); // чья очередь в chess.js
+    // Ищем короля нужного цвета
+    for (const f of FILES) {
+      for (const r of [1,2,3,4,5,6,7,8]) {
+        const s = f + r;
+        const p = chessInstance.get(s);
+        if (p && p.type === 'k' && p.color === turnInCheck) {
+          checkSq = s;
+          break;
+        }
+      }
+      if (checkSq) break;
+    }
+  }
+
   const cornerTop = document.createElement('div');
   cornerTop.className = 'coord-file';
   container.appendChild(cornerTop);
@@ -797,6 +853,7 @@ function renderBoard() {
         if (sq === lastMove.from) div.classList.add('last-from');
         if (sq === lastMove.to)   div.classList.add('last-to');
       }
+      if (checkSq === sq) div.classList.add('in-check');
       if (selectedSq === sq) div.classList.add('selected');
       if (legalMoves.includes(sq)) {
         const p = chessInstance ? chessInstance.get(sq) : null;
@@ -843,28 +900,29 @@ function onSquareClick(sq) {
     return;
   }
 
+  const myColorSymbol = myRole === 'white' ? 'w' : 'b';
+
+  // Если уже выбрана клетка и кликаем по допустимому ходу — делаем ход
   if (legalMoves.includes(sq) && selectedSq) {
     makeMove(selectedSq, sq);
     return;
   }
 
-  // НАЧАЛО ВСТАВКИ: Резервный ход для Dice Chess (если chess.js не выдал ходов из-за шаха)
+  // Резервный ход: если выбрана фигура и кликаем не по своей фигуре
   if (selectedSq && selectedSq !== sq) {
     const pieceOnTarget = chessInstance.get(sq);
-    const myColorSymbol = myRole === 'white' ? 'w' : 'b';
-    // Если мы уже выбрали фигуру и кликаем по пустой клетке или фигуре соперника
     if (!pieceOnTarget || pieceOnTarget.color !== myColorSymbol) {
       makeMove(selectedSq, sq);
       return;
     }
   }
-  // КОНЕЦ ВСТАВКИ
 
+  // Выбираем фигуру и считаем её легальные ходы через правильный инстанс
   const piece = chessInstance.get(sq);
-  if (piece && ((piece.color === 'w' && myRole === 'white') ||
-                (piece.color === 'b' && myRole === 'black'))) {
+  if (piece && piece.color === myColorSymbol) {
     selectedSq = sq;
-    const moves = chessInstance.moves({ square: sq, verbose: true });
+    const moveChess = getChessForMoves();
+    const moves = moveChess ? moveChess.moves({ square: sq, verbose: true }) : [];
     legalMoves = moves.map(m => m.to);
     renderBoard();
   } else {
@@ -980,8 +1038,19 @@ function renderPlayers(players) {
     document.getElementById('role-opponent').textContent = opponentRole === 'white' ? ' Белые' : ' Чёрные';
     document.getElementById('av-opponent').textContent = '♟';
     document.getElementById('av-opponent').className = 'player-avatar ' + (opponentRole === 'white' ? 'white-av' : 'black-av');
+  } if (opp) {
+    document.getElementById('name-opponent').textContent = opp.name;
+    document.getElementById('role-opponent').textContent = opponentRole === 'white' ? ' Белые' : ' Чёрные';
+    document.getElementById('av-opponent').textContent = '♟';
+    document.getElementById('av-opponent').className = 'player-avatar ' + (opponentRole === 'white' ? 'white-av' : 'black-av');
   } else {
-    document.getElementById('name-opponent').innerHTML = 'Ожидание соперника<span class="waiting-dots"></span>';
+    // Добавляем удобную кнопку копирования прямо под статус ожидания
+    document.getElementById('name-opponent').innerHTML = `
+      Ожидание соперника<span class="waiting-dots"></span>
+      <div style="font-size:12px; color:var(--gold); margin-top:6px; cursor:pointer; font-family:var(--font);" onclick="copyRoomId()">
+        📋 Скопировать ссылку для друга
+      </div>
+    `;
     document.getElementById('role-opponent').textContent = '—';
   }
 }
@@ -1068,8 +1137,18 @@ function showToast(msg, isError = false) {
 
 function copyRoomId() {
   if (!roomId) return;
-  const url = `${location.origin}${location.pathname}?room=${roomId}`;
-  navigator.clipboard.writeText(url).then(() => showToast('Ссылка скопирована!'));
+  // Копируем строго сам ID комнаты вместо сборки URL-адреса
+  navigator.clipboard.writeText(roomId).then(() => showToast('Код комнаты скопирован!'));
+}
+
+function showFriendOptions() {
+  document.getElementById('lobby-main-actions').style.display = 'none';
+  document.getElementById('lobby-friend-actions').style.display = 'block';
+}
+
+function showMainOptions() {
+  document.getElementById('lobby-friend-actions').style.display = 'none';
+  document.getElementById('lobby-main-actions').style.display = 'block';
 }
 
 window.addEventListener('DOMContentLoaded', () => {

@@ -103,6 +103,7 @@ async def run_ai_turn(room: GameRoom):
                 "fen": result["fen"],
                 "moves_left": result["moves_left"],
                 "dice_value": result["dice_value"],
+                "captures_made": result.get("captures_made", 0),
                 "by": "black",
             })
 
@@ -235,6 +236,7 @@ async def websocket_endpoint(ws: WebSocket):
                         "fen": result["fen"],
                         "moves_left": result["moves_left"],
                         "dice_value": result["dice_value"],
+                        "captures_made": result.get("captures_made", 0),
                         "by": by.value if by else "unknown",
                     })
 

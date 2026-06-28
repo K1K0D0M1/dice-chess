@@ -2,7 +2,8 @@
 Dice Chess — Game Logic
 Кубик определяет бюджет ходов за раунд (1-6).
 Игрок может ходить несколькими фигурами, главное — уложиться в бюджет.
-Бюджет = количество ходов (не клеток), каждый ход = 1 единица бюджета.
+Бюджет = количество клеток (не ходов), каждая клетка = 1 единица бюджета.
+Ограничение: за один раунд можно съесть не более одной фигуры.
 """
 
 import chess
@@ -35,9 +36,10 @@ class Player:
 @dataclass
 class TurnState:
     dice_value: int = 0          # выпавшее число
-    moves_left: int = 0          # оставшийся бюджет
+    moves_left: int = 0          # оставшийся бюджет клеток
     moves_made: list = field(default_factory=list)  # ходы в этом раунде
     dice_rolled: bool = False    # кинул ли кубик
+    captures_made: int = 0       # сколько фигур съедено за этот раунд
 
 
 @dataclass
@@ -119,38 +121,55 @@ class GameRoom:
         if piece.color != expected_color:
             raise ValueError("Вы не можете ходить чужой фигурой")
 
-        # ─── ИСПРАВЛЕННЫЙ БЛОК: Точный расчет стоимости по типам фигур ───
+        # ─── Проверка взятия: за раунд можно съесть только одну фигуру ───
+        is_capture = self.board.is_capture(move)
+        if is_capture and self.turn_state.captures_made >= 1:
+            raise ValueError("За один раунд можно съесть только одну фигуру")
+
+        # ─── Расчет стоимости хода по типам фигур ───
         from_sq = move.from_square
         to_sq = move.to_square
         file_dist = abs(chess.square_file(from_sq) - chess.square_file(to_sq))
         rank_dist = abs(chess.square_rank(from_sq) - chess.square_rank(to_sq))
 
         if piece.piece_type == chess.KNIGHT:
-            move_cost = 3  # Конь прыгает на любую доступную ему клетку за 3 очка бюджета
+            move_cost = 3  # Конь прыгает за 3 очка бюджета
         elif piece.piece_type == chess.PAWN:
-            # Если идет прямо (file_dist == 0), то цена равна пройденным клеткам (1 или 2)
-            # Если бьет наискосок, то смещение всегда 1 клетка
+            # Прямо — стоимость по клеткам (1 или 2), наискосок (взятие) — 1
             move_cost = rank_dist if file_dist == 0 else 1
         else:
-            # Для Ладьи, Слона, Ферзя и Короля цена — это количество пройденных клеток
+            # Ладья, Слон, Ферзь, Король — количество пройденных клеток
             move_cost = max(file_dist, rank_dist)
 
         if move_cost > self.turn_state.moves_left:
-            raise ValueError(f"Недостаточно бюджета клеток. Нужно: {move_cost}, осталось: {self.turn_state.moves_left}")
+            raise ValueError(
+                f"Недостаточно бюджета. Нужно: {move_cost}, осталось: {self.turn_state.moves_left}"
+            )
+
+        # ─── Выполняем ход ───
+        if is_capture:
+            self.turn_state.captures_made += 1
 
         self.board.push(move)
         self.turn_state.moves_made.append(uci_move)
-        self.turn_state.moves_left -= move_cost  # Списываем стоимость клеток
+        self.turn_state.moves_left -= move_cost
 
-        # ─── ИСПРАВЛЕНИЕ ОШИБКИ №1: Удерживаем ход, если бюджет остался ───
-        if self.turn_state.moves_left > 0:
-            self.board.turn = chess.WHITE if self.current_turn == PlayerRole.WHITE else chess.BLACK
+        # ─── Принудительное завершение хода после взятия ───
+        # Съел фигуру — ход немедленно переходит сопернику, остаток бюджета сгорает.
+        if is_capture:
+            self.turn_state.moves_left = 0
+
+        # ─── КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: Синхронизируем board.turn с текущим игроком,
+        #     ТОЛЬКО если бюджет ещё остался. Проверку мата делаем ДО этого,
+        #     пока board.turn указывает на противника (только что получившего мат).
+        # ───────────────────────────────────────────────────────────────────────
 
         # Записываем в историю
         self.history.append({
             "turn": self.current_turn.value,
             "move": uci_move,
             "dice": self.turn_state.dice_value,
+            "capture": is_capture,
         })
 
         result = {
@@ -158,25 +177,38 @@ class GameRoom:
             "fen": self.board.fen(),
             "moves_left": self.turn_state.moves_left,
             "dice_value": self.turn_state.dice_value,
+            "captures_made": self.turn_state.captures_made,
             "game_over": False,
             "winner": None,
         }
 
-        # Проверка победы: мат
+        # ─── Проверка победы: мат ───
+        # После board.push() ход передан противнику. is_checkmate() проверяет,
+        # есть ли ходы у той стороны, которая сейчас ходит (т.е. у противника).
+        # Именно здесь — правильный момент для проверки.
         if self.board.is_checkmate():
             self.status = GameStatus.FINISHED
-            winner_role = self.current_turn
+            winner_role = self.current_turn  # тот, кто только что сделал ход
             self.winner = self.players.get(winner_role, Player("ai", "AI", PlayerRole.BLACK)).name
             result["game_over"] = True
             result["winner"] = self.winner
             return result
 
-        # Проверка ничьей
+        # ─── Проверка ничьей ───
         if self.board.is_stalemate() or self.board.is_insufficient_material():
             self.status = GameStatus.FINISHED
             result["game_over"] = True
             result["winner"] = "draw"
             return result
+
+        # ─── Если бюджет остался, удерживаем ход у текущего игрока ───
+        # board.push() уже переключил board.turn на противника.
+        # Возвращаем ход обратно, чтобы текущий игрок мог продолжить.
+        if self.turn_state.moves_left > 0:
+            self.board.turn = chess.WHITE if self.current_turn == PlayerRole.WHITE else chess.BLACK
+
+        # ─── ИСПРАВЛЕНИЕ: Перезаписываем FEN актуальным состоянием доски ───
+        result["fen"] = self.board.fen()
 
         return result
 
@@ -202,8 +234,8 @@ class GameRoom:
         else:
             self.current_turn = PlayerRole.WHITE
         self.turn_state = TurnState()
-        
-        # СИНХРОНИЗАЦИЯ: передаем ход на доске новому игроку при смене раунда
+
+        # Синхронизация: передаём ход на доске новому игроку
         self.board.turn = chess.WHITE if self.current_turn == PlayerRole.WHITE else chess.BLACK
 
     def _state_snapshot(self) -> dict:
@@ -214,6 +246,7 @@ class GameRoom:
             "dice_value": self.turn_state.dice_value,
             "moves_left": self.turn_state.moves_left,
             "dice_rolled": self.turn_state.dice_rolled,
+            "captures_made": self.turn_state.captures_made,
             "winner": self.winner,
         }
 
