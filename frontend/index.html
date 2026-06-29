@@ -576,8 +576,10 @@ const WS_URL = (() => {
 })();
 
 // ИСПОЛЬЗУЕМ СТРОГО СПЛОШНЫЕ СИМВОЛЫ ДЛЯ ОБОИХ ЦВЕТОВ
+// Разделяем Unicode-символы для белых и чёрных фигур + форсируем текстовый режим для мобилок (\uFE0E)
 const PIECE_UNICODE = {
-  k:'♚', q:'♛', r:'♜', b:'♝', n:'♞', p:'♟',
+  'w': { k:'♔︎', q:'♕︎', r:'♖︎', b:'♗︎', n:'♘︎', p:'♙︎' },
+  'b': { k:'♚︎', q:'♛︎', r:'♜︎', b:'♝︎', n:'♞︎', p:'♟︎' }
 };
 const DICE_FACES = ['','⚀','⚁','⚂','⚃','⚄','⚅'];
 
@@ -870,7 +872,7 @@ function renderBoard() {
           span.className = 'piece ' + colorClass;
           
           // Всегда берем красивую сплошную фигуру из маппинга нижнего регистра
-          span.textContent = PIECE_UNICODE[piece.type.toLowerCase()] || '?';
+          span.textContent = PIECE_UNICODE[piece.color][piece.type.toLowerCase()] || '?';
           div.appendChild(span);
         }
       }

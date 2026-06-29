@@ -55,18 +55,26 @@ class GameRoom:
     vs_ai: bool = False
 
     def add_player(self, player_id: str, name: str) -> PlayerRole:
-        """Добавить игрока, вернуть его роль."""
-        if PlayerRole.WHITE not in self.players:
-            role = PlayerRole.WHITE
-        elif PlayerRole.BLACK not in self.players:
-            role = PlayerRole.BLACK
-        else:
-            raise ValueError("Комната заполнена")
-        self.players[role] = Player(id=player_id, name=name, role=role)
+        """Добавить игрока, вернув его роль (рандомно распределяя цвета для друзей)."""
         if self.vs_ai:
+            # Против ИИ создатель комнаты всегда играет за белых
+            role = PlayerRole.WHITE
+        else:
+            # Игра с другом: определяем цвет случайно для первого подключившегося
+            if len(self.players) == 0:
+                role = random.choice([PlayerRole.WHITE, PlayerRole.BLACK])
+            elif len(self.players) == 1:
+                # Второй игрок автоматически забирает оставшийся свободным цвет
+                taken_role = list(self.players.keys())[0]
+                role = PlayerRole.BLACK if taken_role == PlayerRole.WHITE else PlayerRole.WHITE
+            else:
+                raise ValueError("Комната заполнена")
+
+        self.players[role] = Player(id=player_id, name=name, role=role)
+        
+        if self.vs_ai or len(self.players) == 2:
             self.status = GameStatus.ACTIVE
-        elif len(self.players) == 2:
-            self.status = GameStatus.ACTIVE
+            
         return role
 
     def get_player_role(self, player_id: str) -> Optional[PlayerRole]:
