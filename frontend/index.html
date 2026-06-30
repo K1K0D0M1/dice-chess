@@ -335,6 +335,12 @@ header {
 .btn-roll:hover { background: #f5c040; transform: translateY(-1px); }
 .btn-end  { background: transparent; border: 1px solid var(--border2); color: var(--muted); font-size: 13px; }
 .btn-end:hover { border-color: var(--red); color: var(--red); }
+.btn-surrender { background: transparent; border: 1px solid var(--border); color: var(--muted); font-size: 12px; margin-top: 4px; }
+.btn-surrender:hover { border-color: var(--red); color: var(--red); }
+.btn-rematch { background: var(--accent); color: #fff; }
+.btn-rematch:hover { background: var(--accent2); transform: translateY(-1px); }
+.btn-new-game { background: transparent; border: 1px solid var(--border2); color: var(--white); margin-top: 8px; }
+.btn-new-game:hover { border-color: var(--muted); }
 
 /* ── HISTORY ── */
 .history-box {
@@ -515,6 +521,7 @@ header {
       <div class="controls">
         <button class="btn btn-roll" id="btn-roll" onclick="rollDice()" disabled>🎲 Бросить кубик</button>
         <button class="btn btn-end"  id="btn-end"  onclick="endTurn()"  disabled>Завершить ход раньше</button>
+        <button class="btn btn-surrender" id="btn-surrender" onclick="confirmSurrender()">🏳️ Сдаться</button>
       </div>
     </div>
 
@@ -545,7 +552,8 @@ header {
     <div class="gameover-emoji" id="gameover-emoji">🏆</div>
     <div class="gameover-title" id="gameover-title">Победа!</div>
     <div class="gameover-sub"  id="gameover-sub"></div>
-    <button class="btn btn-primary" onclick="location.reload()">Новая игра</button>
+    <button class="btn btn-rematch" id="btn-rematch" onclick="requestRematch()">🔄 Реванш</button>
+    <button class="btn btn-new-game" onclick="location.reload()">🏠 Новая игра</button>
   </div>
 </div>
 
@@ -602,6 +610,29 @@ let gameOver = false;
 let capturesMade = 0; // взятий в текущем раунде
 
 let currentFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+
+// ── SESSION PERSIST ─────────────────────────────────────────────────
+const SESSION_KEY = 'dice_chess_session';
+
+function saveSession() {
+  try {
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify({
+      roomId, myRole, myPlayerId,
+      playerName: document.getElementById('player-name')?.value || 'Игрок'
+    }));
+  } catch(e) {}
+}
+
+function loadSession() {
+  try {
+    const raw = sessionStorage.getItem(SESSION_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch(e) { return null; }
+}
+
+function clearSession() {
+  try { sessionStorage.removeItem(SESSION_KEY); } catch(e) {}
+}
 
 // ── CHESS.JS LAZY LOAD ───────────────────────────────────────────────
 let _chessLoaded = false;
@@ -665,6 +696,20 @@ function connectWS(onOpen) {
   ws.onclose  = () => { if (!gameOver) showToast('Соединение потеряно'); };
 }
 
+function connectAndRejoin(session) {
+  ws = new WebSocket(WS_URL);
+  ws.onopen = () => {
+    // Переподключаемся к старой комнате с тем же именем
+    sendWS({ type: 'join', name: session.playerName, room_id: session.roomId, vs_ai: false });
+  };
+  ws.onmessage = e => handleMessage(JSON.parse(e.data));
+  ws.onerror  = () => {
+    showToast('Не удалось восстановить сессию — начните новую игру');
+    clearSession();
+  };
+  ws.onclose  = () => { if (!gameOver) showToast('Соединение потеряно'); };
+}
+
 function sendWS(msg) {
   console.log("TO SERVER:", msg);
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
@@ -685,6 +730,7 @@ function handleMessage(msg) {
       }
       applyState(msg.state);
       showRoomBadge();
+      saveSession();
       break;
 
     case 'opponent_joined':
@@ -751,7 +797,43 @@ function handleMessage(msg) {
       currentFen = msg.fen;
       chessInstance = initChess(currentFen);
       renderBoard();
-      showGameOver(msg.winner);
+      showGameOver(msg.winner, msg.loser, msg.winner_role, msg.loser_role, msg.by_surrender);
+      clearSession();
+      break;
+
+    case 'rematch_vote':
+      {
+        const btn = document.getElementById('btn-rematch');
+        if (btn) {
+          btn.textContent = `🔄 Реванш (${msg.votes}/${msg.needed})`;
+        }
+        if (msg.votes < msg.needed)
+          showToast(`Ожидаем согласия соперника на реванш (${msg.votes}/${msg.needed})`);
+      }
+      break;
+
+    case 'rematch_start':
+      // Полностью сбрасываем состояние и стартуем заново
+      gameOver = false;
+      lastMove = null;
+      selectedSq = null;
+      legalMoves = [];
+      document.getElementById('gameover-overlay').style.display = 'none';
+      const remBtn = document.getElementById('btn-rematch');
+      if (remBtn) { remBtn.textContent = '🔄 Реванш'; remBtn.disabled = false; }
+      // После реванша роли могут поменяться — ищем свой player_id в новом state
+      if (msg.state && msg.state.players) {
+        for (const [role, p] of Object.entries(msg.state.players)) {
+          if (p.id === myPlayerId) {
+            myRole = role;
+            flipped = myRole === 'black';
+            break;
+          }
+        }
+      }
+      applyState(msg.state);
+      showToast('🎲 Реванш начался! Цвета поменялись.');
+      saveSession();
       break;
 
     case 'error':
@@ -1009,8 +1091,10 @@ function updateControls() {
   const isMyTurn = currentTurn === myRole && !gameOver;
   const btnRoll = document.getElementById('btn-roll');
   const btnEnd  = document.getElementById('btn-end');
+  const btnSurrender = document.getElementById('btn-surrender');
   btnRoll.disabled = !(isMyTurn && !diceRolled);
   btnEnd.disabled  = !(isMyTurn && diceRolled && movesLeft > 0);
+  if (btnSurrender) btnSurrender.disabled = gameOver;
 }
 
 // ── TURN INDICATORS ───────────────────────────────────────────────────
@@ -1082,24 +1166,52 @@ function setStatus(text, cls = '') {
 }
 
 // ── GAME OVER ─────────────────────────────────────────────────────────
-function showGameOver(winner) {
+function showGameOver(winner, loser, winnerRole, loserRole, bySurrender) {
   const overlay = document.getElementById('gameover-overlay');
   const emoji   = document.getElementById('gameover-emoji');
   const title   = document.getElementById('gameover-title');
   const sub     = document.getElementById('gameover-sub');
+  const remBtn  = document.getElementById('btn-rematch');
 
   if (winner === 'draw') {
     emoji.textContent = '🤝';
     title.textContent = 'Ничья!';
     sub.textContent   = 'Равная игра!';
+    if (remBtn) remBtn.style.display = 'none';
+  } else if (bySurrender) {
+    // Надёжно: сравниваем роль, а не имя
+    const iSurrendered = myRole === loserRole;
+    emoji.textContent = iSurrendered ? '🏳️' : '🎉';
+    title.textContent = iSurrendered ? 'Вы сдались' : `${winner} победил!`;
+    sub.textContent   = iSurrendered
+      ? 'Соперник принял вашу капитуляцию.'
+      : `${loser} сдался — вы победили!`;
+    if (remBtn) remBtn.style.display = 'inline-flex';
   } else {
-    emoji.textContent = '🏆';
-    title.textContent = `${winner} победил!`;
-    sub.textContent   = 'Спасибо за игру!';
+    const iWon = myRole === winnerRole;
+    emoji.textContent = iWon ? '🏆' : '😞';
+    title.textContent = iWon ? 'Вы победили!' : `${winner} победил!`;
+    sub.textContent   = iWon ? 'Отличная игра!' : 'Спасибо за игру!';
+    if (remBtn) remBtn.style.display = 'inline-flex';
   }
 
   overlay.style.display = 'flex';
   updateControls();
+}
+
+// ── SURRENDER ─────────────────────────────────────────────────────────
+function confirmSurrender() {
+  if (gameOver) return;
+  if (confirm('Вы уверены, что хотите сдаться?')) {
+    sendWS({ type: 'surrender' });
+  }
+}
+
+// ── REMATCH ───────────────────────────────────────────────────────────
+function requestRematch() {
+  sendWS({ type: 'rematch' });
+  document.getElementById('btn-rematch').disabled = true; // Блокируем кнопку только себе после нажатия
+  showToast('Запрос на реванш отправлен...');
 }
 
 // ── LOBBY / GAME SWITCH ───────────────────────────────────────────────
@@ -1158,6 +1270,19 @@ window.addEventListener('DOMContentLoaded', () => {
   const rid = params.get('room');
   if (rid) {
     document.getElementById('join-room-id').value = rid.toUpperCase();
+  }
+
+  // ── Восстановление сессии после обновления страницы ──
+  const session = loadSession();
+  if (session && session.roomId && session.playerName) {
+    // Покажем лобби с именем
+    const nameEl = document.getElementById('player-name');
+    if (nameEl) nameEl.value = session.playerName;
+
+    showToast('Восстанавливаем вашу игру...');
+    loadChessJs(() => {
+      connectAndRejoin(session);
+    });
   }
 
   document.getElementById('join-room-id').addEventListener('keydown', e => {

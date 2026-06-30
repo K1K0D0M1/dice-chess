@@ -9,6 +9,8 @@ FastAPI + WebSockets
     { "type": "move",       "from": "e2", "to": "e4", "promotion": "q"|null }
     { "type": "end_turn" }
     { "type": "get_state" }
+    { "type": "surrender" }
+    { "type": "rematch" }
 
   Сервер → Клиент:
     { "type": "joined",     "room_id": "...", "role": "white"|"black", "state": {...} }
@@ -16,7 +18,9 @@ FastAPI + WebSockets
     { "type": "dice_rolled","dice_value": N, "moves_left": N, "by": "white"|"black" }
     { "type": "moved",      "move": "e2e4", "fen": "...", "moves_left": N, ... }
     { "type": "turn_changed","current_turn": "white"|"black", ... }
-    { "type": "game_over",  "winner": "...", "fen": "..." }
+    { "type": "game_over",  "winner": "...", "fen": "...", "by_surrender": bool }
+    { "type": "rematch_vote","votes": N, "needed": N }
+    { "type": "rematch_start","state": {...} }
     { "type": "error",      "message": "..." }
     { "type": "opponent_joined", "name": "..." }
 """
@@ -285,6 +289,51 @@ async def websocket_endpoint(ws: WebSocket):
                 room = get_room(room_id)
                 if room:
                     await send(ws, {"type": "state", **room.full_state()})
+
+            # ──────────────────────────────────────────────
+            elif msg_type == "surrender":
+                if not room_id or not player_id:
+                    continue
+                room = get_room(room_id)
+                if room is None:
+                    continue
+                try:
+                    result = room.surrender(player_id)
+                    await broadcast(room_id, {
+                        "type":        "game_over",
+                        "winner":      result["winner"],
+                        "winner_role": result["winner_role"],
+                        "loser":       result["loser"],
+                        "loser_role":  result["loser_role"],
+                        "fen":         result["fen"],
+                        "by_surrender": True,
+                    })
+                except ValueError as e:
+                    await send(ws, {"type": "error", "message": str(e)})
+
+            # ──────────────────────────────────────────────
+            elif msg_type == "rematch":
+                if not room_id or not player_id:
+                    continue
+                room = get_room(room_id)
+                if room is None:
+                    continue
+                try:
+                    vote = room.vote_rematch(player_id)
+                    # Сообщаем всем о новом голосе
+                    await broadcast(room_id, {
+                        "type": "rematch_vote",
+                        "votes": vote["votes"],
+                        "needed": vote["needed"],
+                    })
+                    if vote["ready"]:
+                        room.reset_for_rematch()
+                        await broadcast(room_id, {
+                            "type": "rematch_start",
+                            "state": room.full_state(),
+                        })
+                except ValueError as e:
+                    await send(ws, {"type": "error", "message": str(e)})
 
             # ──────────────────────────────────────────────
             else:

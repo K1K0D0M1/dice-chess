@@ -53,6 +53,7 @@ class GameRoom:
     history: list = field(default_factory=list)   # список ходов всей партии
     winner: Optional[str] = None
     vs_ai: bool = False
+    rematch_votes: set = field(default_factory=set)  # роли, проголосовавшие за реванш
 
     def add_player(self, player_id: str, name: str) -> PlayerRole:
         """Добавить игрока, вернув его роль (рандомно распределяя цвета для друзей)."""
@@ -141,7 +142,7 @@ class GameRoom:
         rank_dist = abs(chess.square_rank(from_sq) - chess.square_rank(to_sq))
 
         if piece.piece_type == chess.KNIGHT:
-            move_cost = 3  # Конь прыгает за 3 очка бюджета
+            move_cost = 2  # Конь прыгает за 2 очка бюджета
         elif piece.piece_type == chess.PAWN:
             # Прямо — стоимость по клеткам (1 или 2), наискосок (взятие) — 1
             move_cost = rank_dist if file_dist == 0 else 1
@@ -219,6 +220,75 @@ class GameRoom:
         result["fen"] = self.board.fen()
 
         return result
+
+    def surrender(self, player_id: str) -> dict:
+        """Игрок сдаётся — партия завершается победой соперника."""
+        role = self.get_player_role(player_id)
+        if role is None:
+            raise ValueError("Игрок не найден")
+        if self.status != GameStatus.ACTIVE:
+            raise ValueError("Игра не активна")
+
+        self.status = GameStatus.FINISHED
+        winner_role = PlayerRole.BLACK if role == PlayerRole.WHITE else PlayerRole.WHITE
+
+        if self.vs_ai and winner_role == PlayerRole.BLACK:
+            self.winner = "AI (Stockfish)"
+        else:
+            winner_player = self.players.get(winner_role)
+            self.winner = winner_player.name if winner_player else "Соперник"
+
+        loser_player = self.players.get(role)
+        loser_name = loser_player.name if loser_player else "Игрок"
+        winner_role_str = winner_role.value if hasattr(winner_role, 'value') else str(winner_role)
+        loser_role_str  = role.value        if hasattr(role, 'value')         else str(role)
+        return {
+            "game_over":   True,
+            "winner":      self.winner,
+            "winner_role": winner_role_str,
+            "loser":       loser_name,
+            "loser_role":  loser_role_str,
+            "fen":         self.board.fen(),
+            "by_surrender": True,
+        }
+
+    def vote_rematch(self, player_id: str) -> dict:
+        """Голос за реванш. Возвращает (ready, votes_count, total_needed)."""
+        role = self.get_player_role(player_id)
+        if role is None:
+            raise ValueError("Игрок не найден")
+        if self.status != GameStatus.FINISHED:
+            raise ValueError("Игра ещё не завершена")
+        self.rematch_votes.add(role)
+        needed = 1 if self.vs_ai else 2
+        ready = len(self.rematch_votes) >= needed
+        return {"ready": ready, "votes": len(self.rematch_votes), "needed": needed}
+
+    def reset_for_rematch(self):
+        """Сбросить доску для реванша, меняя цвета местами."""
+        old_roles = {role: p for role, p in self.players.items()}
+        self.board = chess.Board()
+        self.status = GameStatus.ACTIVE
+        self.current_turn = PlayerRole.WHITE
+        self.turn_state = TurnState()
+        self.history = []
+        self.winner = None
+        self.rematch_votes = set()
+
+        # Меняем цвета местами у людей (если не vs_ai)
+        if not self.vs_ai and len(old_roles) == 2:
+            roles = list(old_roles.keys())
+            p0, p1 = old_roles[roles[0]], old_roles[roles[1]]
+            self.players = {
+                roles[0]: Player(id=p1.id, name=p1.name, role=roles[0]),
+                roles[1]: Player(id=p0.id, name=p0.name, role=roles[1]),
+            }
+        else:
+            # vs_ai: человек остаётся белым
+            self.players = {
+                role: Player(id=p.id, name=p.name, role=role)
+                for role, p in old_roles.items()
+            }
 
     def end_turn(self, player_id: str) -> dict:
         """Завершить свой ход досрочно (потратил не весь бюджет)."""
